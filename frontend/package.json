@@ -1,0 +1,44 @@
+{
+  "name": "tit-tat-toe-frontend",
+  "version": "0.1.0",
+  "description": "Frontend for an online multiplayer tic tac toe like game",
+  "main": "src/index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "start": "npm install && npm run dev",
+    "test": "elm-app test",
+    "dev:elm": "elm-live src/Main.elm --dir=public --pushstate -- --output=public/dist/elm.js",
+    "dev:ts": "npx esbuild ts/index.ts --outfile=public/index.js --bundle --watch",
+    "dev:tailwind": "npx tailwindcss -i ./src/main.css -o  ./public/dist/style.css --watch",
+    "dev": "concurrently \"npm run dev:tailwind\" \"npm run dev:ts\" \"npm run dev:elm\"",
+    "build:elm": "elm  make src/Main.elm --output=public/dist/elm.js",
+    "build:ts": "npx esbuild ts/index.ts --outfile=public/index.js --bundle --minify --sourcemap",
+    "build:tailwind": "npx tailwindcss -i ./src/main.css -o  ./public/dist/style.css --minify",
+    "build": "npm run build:tailwind && npm run build:elm && npm run build:ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kamenchunathan/tit_tat_toe.git"
+  },
+  "keywords": [
+    "elm",
+    "game",
+    "tic-tac-toe"
+  ],
+  "author": "Nathan Kamenchu",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/kamenchunathan/tit_tat_toe/issues"
+  },
+  "homepage": "https://github.com/kamenchunathan/tit_tat_toe#readme",
+  "devDependencies": {
+    "elm-canvas": "^2.2.4",
+    "eslint": "^8.23.0",
+    "tailwindcss": "^3.1.8"
+  },
+  "dependencies": {
+    "esbuild": "^0.15.6"
+  }
+}
