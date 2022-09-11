@@ -1,11 +1,12 @@
 import  "elm-canvas";
-import { salamu } from "./ports";
+import { Context, sendMessage, onReceiveMessage } from "./socketPorts";
+
+let ctx = new Context()
 
 const app = window.Elm.Main.init({
   node: document.getElementById('root')
 });
 
-
-
-salamu("Kenya");
+app.ports.sendMsg.subscribe(sendMessage(ctx));
+onReceiveMessage(ctx)(app.ports.recvMsg.send);
 

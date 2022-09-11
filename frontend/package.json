@@ -8,12 +8,12 @@
   },
   "scripts": {
     "start": "npm install && npm run dev",
-    "test": "elm-app test",
-    "dev:elm": "elm-live src/Main.elm --dir=public --pushstate -- --output=public/dist/elm.js",
+    "test": "elm test",
+    "dev:elm": "npx elm-live src/Main.elm --dir=public --pushstate -- --output=public/dist/elm.js",
     "dev:ts": "npx esbuild ts/index.ts --outfile=public/index.js --bundle --watch",
     "dev:tailwind": "npx tailwindcss -i ./src/main.css -o  ./public/dist/style.css --watch",
-    "dev": "concurrently \"npm run dev:tailwind\" \"npm run dev:ts\" \"npm run dev:elm\"",
-    "build:elm": "elm  make src/Main.elm --output=public/dist/elm.js",
+    "dev": "npx concurrently \"npm run dev:tailwind\" \"npm run dev:ts\" \"npm run dev:elm\"",
+    "build:elm": "npx elm make src/Main.elm --output=public/dist/elm.js",
     "build:ts": "npx esbuild ts/index.ts --outfile=public/index.js --bundle --minify --sourcemap",
     "build:tailwind": "npx tailwindcss -i ./src/main.css -o  ./public/dist/style.css --minify",
     "build": "npm run build:tailwind && npm run build:elm && npm run build:ts"
@@ -34,11 +34,14 @@
   },
   "homepage": "https://github.com/kamenchunathan/tit_tat_toe#readme",
   "devDependencies": {
-    "elm-canvas": "^2.2.4",
+    "concurrently": "^7.4.0",
+    "elm": "^0.19.1-5",
+    "elm-live": "^4.0.2",
+    "esbuild": "^0.15.6",
     "eslint": "^8.23.0",
     "tailwindcss": "^3.1.8"
   },
   "dependencies": {
-    "esbuild": "^0.15.6"
+    "elm-canvas": "^2.2.4"
   }
 }
