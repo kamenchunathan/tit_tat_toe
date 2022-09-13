@@ -1,14 +1,15 @@
 port module Main exposing (..)
 
 import Browser
-import Canvas as Canvas exposing (Point, Renderable, lineTo, path, rect, shapes)
+import Canvas as Canvas exposing (Point, Renderable, circle, clear, lineTo, path, rect, shapes)
 import Canvas.Settings exposing (fill)
 import Canvas.Settings.Advanced exposing (rotate, scale, transform, translate)
 import Color
 import Graph exposing (Graph, fromNodeLabelsAndEdgePairs)
 import Html exposing (Html, button, div, h2, text)
 import Html.Attributes exposing (class)
-import Html.Events exposing (onClick)
+import Html.Events exposing (on, onClick)
+import Json.Decode as Decode
 import Json.Encode as Encode exposing (Value)
 
 
@@ -19,7 +20,9 @@ import Json.Encode as Encode exposing (Value)
 type alias Model =
     { socketUri : String
     , sockState : SocketState
-    , gameState : Board
+    , board : Board
+    , currentPlayer : Player
+    , selectedPieceCoords : Maybe ( Int, Int )
     , canvasDim : { width : Int, height : Int }
     }
 
@@ -53,6 +56,22 @@ type alias BoardPosition =
     { coord : ( Int, Int )
     , piece : Maybe Piece
     }
+
+
+type alias MouseEvent =
+    { offsetX : Int
+    , offsetY : Int
+    }
+
+
+decodeClick : Decode.Decoder Msg
+decodeClick =
+    Decode.map
+        (\{ offsetX, offsetY } -> CanvasClicked offsetX offsetY)
+        (Decode.map2 MouseEvent
+            (Decode.field "offsetX" Decode.int)
+            (Decode.field "offsetY" Decode.int)
+        )
 
 
 makeBoard : Board
@@ -119,7 +138,9 @@ init : ( Model, Cmd Msg )
 init =
     ( { socketUri = ""
       , sockState = { readyState = Closed }
-      , gameState = makeBoard
+      , board = makeBoard
+      , currentPlayer = Player1
+      , selectedPieceCoords = Nothing
       , canvasDim = { width = 600, height = 600 }
       }
     , Cmd.none
@@ -156,6 +177,7 @@ type SocketMessage
 type Msg
     = RecvSockMsg SocketMessage
     | SendSockMsg SocketMessage
+    | CanvasClicked Int Int
     | NoOp
 
 
@@ -176,9 +198,49 @@ update msg model =
         NoOp ->
             let
                 _ =
-                    Debug.log "graph check" model.gameState
+                    Debug.log ".." "NoOp"
             in
             ( model, Cmd.none )
+
+        CanvasClicked xCanvas yCanvas ->
+            let
+                -- distance touch has to be from a boardPosition (in hint coords) to be registered as a touch on a boardPosition
+                sensitivity =
+                    0.05
+
+                xh =
+                    toFloat xCanvas / toFloat model.canvasDim.width
+
+                yh =
+                    toFloat yCanvas / toFloat model.canvasDim.height
+
+                touchedPos : List BoardPosition
+                touchedPos =
+                    List.filterMap
+                        (\{ label } ->
+                            let
+                                ( xc, yc ) =
+                                    Tuple.mapBoth toFloat toFloat label.coord
+                            in
+                            if sqrt ((((xc * 0.4 + 0.1) - xh) ^ 2) + (((yc * 0.4 + 0.1) - yh) ^ 2)) <= sensitivity then
+                                Just label
+
+                            else
+                                Nothing
+                        )
+                        (Graph.nodes model.board)
+
+                selectedCoords =
+                    Maybe.map (\bPos -> bPos.coord) (List.head touchedPos)
+
+                _ =
+                    Debug.log "....." ( xh, yh, selectedCoords )
+            in
+            ( { model
+                | selectedPieceCoords = selectedCoords
+              }
+            , Cmd.none
+            )
 
 
 
@@ -205,9 +267,9 @@ view model =
 showCanvas : Model -> Html Msg
 showCanvas model =
     let
-        _ =
-            Debug.log ".." model.canvasDim
-
+        -- _ =
+        --     Debug.log ".." model.canvasDim
+        --
         lineWidth =
             x_hint 0.005
 
@@ -261,14 +323,11 @@ showCanvas model =
             List.filterMap
                 (\node ->
                     let
-                        _ =
-                            Debug.log "..." ( x, y, boardPos )
-
-                        boardPos =
-                            node.label
-
+                        -- _ =
+                        --     Debug.log "..." ( x, y, boardPos )
+                        --
                         ( x, y ) =
-                            boardPos.coord
+                            node.label.coord
                     in
                     Maybe.map
                         (\(Piece player) ->
@@ -281,14 +340,28 @@ showCanvas model =
                                         False
                                 )
                         )
-                        boardPos.piece
+                        node.label.piece
                 )
-                (Graph.nodes model.gameState)
+                (Graph.nodes model.board)
     in
     Canvas.toHtml ( model.canvasDim.width, model.canvasDim.height )
-        [ class "bg-white" ]
-        ([ -- Draw the board (lines showing where you can move)
-           shapes
+        [ class "bg-white", on "click" decodeClick ]
+        ([ -- clear
+           clear ( 0, 0 ) (toFloat model.canvasDim.width) (toFloat model.canvasDim.height)
+
+         -- highlight the currently selected piece
+         -- done at the beginning so it can be drawn over
+         , shapes [ fill <| Color.rgb255 247 238 136 ]
+            (case model.selectedPieceCoords of
+                Just coords ->
+                    [ circle (Tuple.mapBoth (\x -> toFloat x * 0.4 + 0.1 |> x_hint) (\y -> toFloat y * 0.4 + 0.1 |> y_hint) coords) (x_hint 0.05) ]
+
+                Nothing ->
+                    []
+            )
+
+         -- Draw the board (lines showing where you can move)
+         , shapes
             [ fill lineColor ]
             [ -- horizontal lines
               rect (fromRelativePos 0.1 0.1) (x_hint 0.8) lineWidth

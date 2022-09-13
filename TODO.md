@@ -6,7 +6,7 @@
 	- [x] Add typescript code and ports to communicate to backend via sockets
 	- [ ] Create a protoccol for communicating with server
 3. [ ] Get turn based mechanism working
-	- [ ] React to mouse pointer events on click
+	- [x] React to mouse pointer events on click
 
 ## Backend
 - [ ] Create a starter project with the crates for working with web sockets
