@@ -24,6 +24,7 @@ type alias Model =
     , currentPlayer : Player
     , selectedBoardPos : Maybe BoardPosition
     , canvasDim : { width : Int, height : Int }
+    , gameState : GameState
     }
 
 
@@ -37,6 +38,11 @@ type SocketReadyState
 type alias SocketState =
     { readyState : SocketReadyState
     }
+
+
+type GameState
+    = Playing
+    | Won Player
 
 
 type alias Board =
@@ -113,7 +119,7 @@ makeBoard =
             , ( 1, 2 )
             , ( 1, 4 )
             , ( 2, 1 )
-            , ( 2, 3 )
+            , ( 2, 4 )
             , ( 2, 5 )
             , ( 3, 0 )
             , ( 3, 4 )
@@ -149,9 +155,10 @@ init =
     ( { socketUri = ""
       , sockState = { readyState = Closed }
       , board = makeBoard
-      , currentPlayer = Player1
+      , currentPlayer = Player2
       , selectedBoardPos = Nothing
       , canvasDim = { width = 600, height = 600 }
+      , gameState = Playing
       }
     , Cmd.none
     )
@@ -188,6 +195,8 @@ type Msg
     = RecvSockMsg SocketMessage
     | SendSockMsg SocketMessage
     | CanvasClicked Int Int
+    | RestartGame
+    | GameOver Player
     | NoOp
 
 
@@ -230,10 +239,6 @@ update msg model =
                     ( model, Cmd.none )
 
         NoOp ->
-            let
-                _ =
-                    Debug.log ".." "NoOp"
-            in
             ( model, Cmd.none )
 
         CanvasClicked xCanvas yCanvas ->
@@ -272,6 +277,7 @@ update msg model =
                 move =
                     generateMove model.selectedBoardPos touchedBoardPos model.currentPlayer model.board
 
+                -- _ = Debug.log "SelectedMove" move
                 ( newSelectedBPos, newBoard ) =
                     applyMove
                         (Result.withDefault IdentityMove move)
@@ -286,15 +292,31 @@ update msg model =
                         _ ->
                             model.currentPlayer
 
-                _ =
-                    Debug.log "SelectedMove" move
-
                 -- Make a move using the currently selected position and the currently clicked position
+                newModel =
+                    if checkGameWon newBoard then
+                        { model
+                            | gameState = Won model.currentPlayer
+                        }
+
+                    else
+                        { model
+                            | selectedBoardPos = newSelectedBPos
+                            , board = newBoard
+                            , currentPlayer = nextPlayer
+                        }
             in
+            ( newModel, Cmd.none )
+
+        GameOver winner ->
+            ( { model | gameState = Won winner }, Cmd.none )
+
+        RestartGame ->
             ( { model
-                | selectedBoardPos = newSelectedBPos
-                , board = newBoard
-                , currentPlayer = nextPlayer
+                | board = makeBoard
+                , currentPlayer = Player1
+                , selectedBoardPos = Nothing
+                , gameState = Playing
               }
             , Cmd.none
             )
@@ -415,6 +437,95 @@ applyMove m currSelectedBoardPos board =
             )
 
 
+type CountingState
+    = NotStarted
+    | Counting Int
+    | NotEqual
+
+
+checkGameWon : Board -> Bool
+checkGameWon b =
+    let
+        checkHorizontalAlign excludeRowId list =
+            case
+                List.foldl
+                    (\( _, y ) acc ->
+                        case acc of
+                            NotStarted ->
+                                Counting y
+
+                            Counting prevY ->
+                                if y == prevY then
+                                    Counting y
+
+                                else
+                                    NotEqual
+
+                            NotEqual ->
+                                NotEqual
+                    )
+                    NotStarted
+                    list
+            of
+                Counting c ->
+                    c /= excludeRowId
+
+                _ ->
+                    False
+
+        checkVertAlign list =
+            case
+                List.foldl
+                    (\( y, _ ) acc ->
+                        case acc of
+                            NotStarted ->
+                                Counting y
+
+                            Counting prevY ->
+                                if y == prevY then
+                                    Counting y
+
+                                else
+                                    NotEqual
+
+                            NotEqual ->
+                                NotEqual
+                    )
+                    NotStarted
+                    list
+            of
+                Counting c ->
+                    True
+
+                _ ->
+                    False
+
+        checkDiagonalAlign list =
+            List.any
+                (\refList -> List.all identity (List.map (\v -> List.member v refList) list))
+                [ [ ( 0, 0 ), ( 1, 1 ), ( 2, 2 ) ]
+                , [ ( 0, 2 ), ( 1, 1 ), ( 2, 0 ) ]
+                ]
+
+        playerPieces player =
+            List.filterMap
+                (\x ->
+                    if x.label.piece == Just (Piece player) then
+                        Just x.label.coord
+
+                    else
+                        Nothing
+                )
+                (Graph.nodes b)
+    in
+    checkVertAlign (playerPieces Player1)
+        || checkDiagonalAlign (playerPieces Player1)
+        || checkHorizontalAlign 0 (playerPieces Player1)
+        || checkVertAlign (playerPieces Player2)
+        || checkDiagonalAlign (playerPieces Player2)
+        || checkHorizontalAlign 2 (playerPieces Player2)
+
+
 
 ---- VIEW ----
 
@@ -434,7 +545,12 @@ view model =
             ]
         , p [ class "p-2 m-2" ]
             [ text <| "Current Player: " ++ showPlayer model.currentPlayer ]
-        , viewCanvas model
+        , case model.gameState of
+            Won player ->
+                p [] [ text <| "Game over " ++ showPlayer player ++ " wins" ]
+
+            Playing ->
+                viewCanvas model
         ]
 
 
