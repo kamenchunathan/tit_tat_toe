@@ -547,7 +547,14 @@ view model =
             [ text <| "Current Player: " ++ showPlayer model.currentPlayer ]
         , case model.gameState of
             Won player ->
-                p [] [ text <| "Game over " ++ showPlayer player ++ " wins" ]
+                div []
+                    [ p [] [ text <| "Game over " ++ showPlayer player ++ " wins" ]
+                    , button
+                        [ onClick RestartGame
+                        , class "bg-blue-500 text-white p-2 m-2 rounded-lg drop-shadow-lg"
+                        ]
+                        [ text "Restart Game" ]
+                    ]
 
             Playing ->
                 viewCanvas model
