@@ -5,7 +5,7 @@ import Canvas as Canvas exposing (Point, Renderable, circle, clear, lineTo, path
 import Canvas.Settings exposing (fill)
 import Canvas.Settings.Advanced exposing (rotate, scale, transform, translate)
 import Color
-import Graph exposing (Graph, fromNodeLabelsAndEdgePairs)
+import Graph as Graph exposing (Graph, fromNodeLabelsAndEdgePairs)
 import Html exposing (Html, button, div, h2, text)
 import Html.Attributes exposing (class)
 import Html.Events exposing (on, onClick)
@@ -22,7 +22,7 @@ type alias Model =
     , sockState : SocketState
     , board : Board
     , currentPlayer : Player
-    , selectedPieceCoords : Maybe ( Int, Int )
+    , selectedBoardPos : Maybe BoardPosition
     , canvasDim : { width : Int, height : Int }
     }
 
@@ -93,7 +93,7 @@ makeBoard =
                                 Nothing
                     }
                 )
-                (List.range 0 9)
+                (List.range 0 8)
 
         edges =
             [ ( 0, 1 )
@@ -140,7 +140,7 @@ init =
       , sockState = { readyState = Closed }
       , board = makeBoard
       , currentPlayer = Player1
-      , selectedPieceCoords = Nothing
+      , selectedBoardPos = Nothing
       , canvasDim = { width = 600, height = 600 }
       }
     , Cmd.none
@@ -181,6 +181,19 @@ type Msg
     | NoOp
 
 
+type Move
+    = SelectBoardPos BoardPosition
+    | DeselectBoardPos BoardPosition
+    | MovePiece BoardPosition BoardPosition
+    | IdentityMove
+
+
+type MoveError
+    = InvalidMove
+    | UnconnectedPositions -- can only move to positions on the board that are connected by a path and immediately adjacent
+    | TargetPosOccupied -- can only move to an empty board position
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -214,32 +227,156 @@ update msg model =
                 yh =
                     toFloat yCanvas / toFloat model.canvasDim.height
 
-                touchedPos : List BoardPosition
-                touchedPos =
-                    List.filterMap
-                        (\{ label } ->
-                            let
-                                ( xc, yc ) =
-                                    Tuple.mapBoth toFloat toFloat label.coord
-                            in
-                            if sqrt ((((xc * 0.4 + 0.1) - xh) ^ 2) + (((yc * 0.4 + 0.1) - yh) ^ 2)) <= sensitivity then
-                                Just label
+                -- Returns the board position if the area on canvas clicked is close enough (within distance
+                -- specified by sensitivity) and Nothing if the point clicked on the canvas is not close enough
+                -- to a valid board position
+                touchedBoardPos : Maybe BoardPosition
+                touchedBoardPos =
+                    List.head
+                        (List.filterMap
+                            (\{ label } ->
+                                let
+                                    ( xc, yc ) =
+                                        Tuple.mapBoth toFloat toFloat label.coord
+                                in
+                                if sqrt ((((xc * 0.4 + 0.1) - xh) ^ 2) + (((yc * 0.4 + 0.1) - yh) ^ 2)) <= sensitivity then
+                                    Just label
 
-                            else
-                                Nothing
+                                else
+                                    Nothing
+                            )
+                            (Graph.nodes model.board)
                         )
-                        (Graph.nodes model.board)
 
-                selectedCoords =
-                    Maybe.map (\bPos -> bPos.coord) (List.head touchedPos)
+                move =
+                    generateMove model.selectedBoardPos touchedBoardPos model.board
+
+                ( newSelectedBPos, newBoard ) =
+                    applyMove
+                        (Result.withDefault IdentityMove move)
+                        model.selectedBoardPos
+                        model.board
 
                 _ =
-                    Debug.log "....." ( xh, yh, selectedCoords )
+                    Debug.log "Touched position" move
+
+                -- Make a move using the currently selected position and the currently clicked position
             in
             ( { model
-                | selectedPieceCoords = selectedCoords
+                | selectedBoardPos = newSelectedBPos
+                , board = newBoard
               }
             , Cmd.none
+            )
+
+
+posNodeId : BoardPosition -> Int
+posNodeId { coord } =
+    let
+        ( x, y ) =
+            coord
+    in
+    y * 3 + x
+
+
+generateMove : Maybe BoardPosition -> Maybe BoardPosition -> Board -> Result MoveError Move
+generateMove currentlySelectedBoardPos touchedBoardPos board =
+    case ( currentlySelectedBoardPos, touchedBoardPos ) of
+        -- only occupied with a piece can be selected
+        ( Nothing, Just tBPos ) ->
+            if tBPos.piece /= Nothing then
+                Ok (SelectBoardPos tBPos)
+
+            else
+                Ok IdentityMove
+
+        ( Just pos1, Just pos2 ) ->
+            -- if same position is clicked deselect currently selected board position
+            if pos1 == pos2 then
+                Ok (DeselectBoardPos pos1)
+
+            else
+                -- Check if the move is valid
+                Ok (MovePiece pos1 pos2)
+                    |> Result.andThen
+                        (\move ->
+                            if checkConnectedPos pos1 pos2 board then
+                                Ok move
+
+                            else
+                                Err UnconnectedPositions
+                        )
+                    |> Result.andThen
+                        (\move ->
+                            if checkTargetPosEmpty pos2 then
+                                Ok move
+
+                            else
+                                Err TargetPosOccupied
+                        )
+
+        ( _, _ ) ->
+            Err InvalidMove
+
+
+checkConnectedPos : BoardPosition -> BoardPosition -> Board -> Bool
+checkConnectedPos pos1 pos2 board =
+    Graph.fold
+        (\ctx acc ->
+            if ctx.node.label == pos1 then
+                List.any (\x -> x == posNodeId pos2) (Graph.alongOutgoingEdges ctx)
+
+            else
+                acc
+        )
+        False
+        board
+
+
+checkTargetPosEmpty : BoardPosition -> Bool
+checkTargetPosEmpty bPos =
+    case bPos.piece of
+        Nothing ->
+            True
+
+        Just _ ->
+            False
+
+
+applyMove : Move -> Maybe BoardPosition -> Board -> ( Maybe BoardPosition, Board )
+applyMove m currSelectedBoardPos board =
+    case m of
+        IdentityMove ->
+            ( currSelectedBoardPos, board )
+
+        SelectBoardPos bPos ->
+            ( Just bPos, board )
+
+        DeselectBoardPos _ ->
+            ( Nothing, board )
+
+        MovePiece pos1 pos2 ->
+            let
+                p =
+                    Graph.get (posNodeId pos1) board
+                        |> Maybe.andThen (\x -> x.node.label.piece)
+
+                newBoard =
+                    Graph.mapNodes
+                        (\n ->
+                            if n == pos1 then
+                                { n | piece = Nothing }
+
+                            else if n == pos2 then
+                                { n | piece = p }
+
+                            else
+                                n
+                        )
+                        board
+            in
+            ( Nothing
+            , newBoard
             )
 
 
@@ -260,12 +397,12 @@ view model =
                 ]
                 [ text "Print" ]
             ]
-        , showCanvas model
+        , viewCanvas model
         ]
 
 
-showCanvas : Model -> Html Msg
-showCanvas model =
+viewCanvas : Model -> Html Msg
+viewCanvas model =
     let
         -- _ =
         --     Debug.log ".." model.canvasDim
@@ -352,9 +489,16 @@ showCanvas model =
          -- highlight the currently selected piece
          -- done at the beginning so it can be drawn over
          , shapes [ fill <| Color.rgb255 247 238 136 ]
-            (case model.selectedPieceCoords of
-                Just coords ->
-                    [ circle (Tuple.mapBoth (\x -> toFloat x * 0.4 + 0.1 |> x_hint) (\y -> toFloat y * 0.4 + 0.1 |> y_hint) coords) (x_hint 0.05) ]
+            (case model.selectedBoardPos of
+                Just bpos ->
+                    [ circle
+                        (Tuple.mapBoth
+                            (\x -> toFloat x * 0.4 + 0.1 |> x_hint)
+                            (\y -> toFloat y * 0.4 + 0.1 |> y_hint)
+                            bpos.coord
+                        )
+                        (x_hint 0.05)
+                    ]
 
                 Nothing ->
                     []
