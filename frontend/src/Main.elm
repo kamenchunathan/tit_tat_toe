@@ -6,7 +6,7 @@ import Canvas.Settings exposing (fill)
 import Canvas.Settings.Advanced exposing (rotate, scale, transform, translate)
 import Color
 import Graph as Graph exposing (Graph, fromNodeLabelsAndEdgePairs)
-import Html exposing (Html, button, div, h2, text)
+import Html exposing (Html, button, div, h2, p, text)
 import Html.Attributes exposing (class)
 import Html.Events exposing (on, onClick)
 import Json.Decode as Decode
@@ -74,6 +74,16 @@ decodeClick =
         )
 
 
+showPlayer : Player -> String
+showPlayer p =
+    case p of
+        Player1 ->
+            "Player 1"
+
+        Player2 ->
+            "Player 2"
+
+
 makeBoard : Board
 makeBoard =
     let
@@ -105,7 +115,7 @@ makeBoard =
             , ( 2, 1 )
             , ( 2, 3 )
             , ( 2, 5 )
-            , ( 3, 3 )
+            , ( 3, 0 )
             , ( 3, 4 )
             , ( 3, 6 )
             , ( 4, 0 )
@@ -192,6 +202,17 @@ type MoveError
     = InvalidMove
     | UnconnectedPositions -- can only move to positions on the board that are connected by a path and immediately adjacent
     | TargetPosOccupied -- can only move to an empty board position
+    | WrongPlayer
+
+
+otherPlayer : Player -> Player
+otherPlayer p =
+    case p of
+        Player1 ->
+            Player2
+
+        Player2 ->
+            Player1
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -249,7 +270,7 @@ update msg model =
                         )
 
                 move =
-                    generateMove model.selectedBoardPos touchedBoardPos model.board
+                    generateMove model.selectedBoardPos touchedBoardPos model.currentPlayer model.board
 
                 ( newSelectedBPos, newBoard ) =
                     applyMove
@@ -257,14 +278,23 @@ update msg model =
                         model.selectedBoardPos
                         model.board
 
+                nextPlayer =
+                    case move of
+                        Ok (MovePiece _ _) ->
+                            otherPlayer model.currentPlayer
+
+                        _ ->
+                            model.currentPlayer
+
                 _ =
-                    Debug.log "Touched position" move
+                    Debug.log "SelectedMove" move
 
                 -- Make a move using the currently selected position and the currently clicked position
             in
             ( { model
                 | selectedBoardPos = newSelectedBPos
                 , board = newBoard
+                , currentPlayer = nextPlayer
               }
             , Cmd.none
             )
@@ -279,16 +309,21 @@ posNodeId { coord } =
     y * 3 + x
 
 
-generateMove : Maybe BoardPosition -> Maybe BoardPosition -> Board -> Result MoveError Move
-generateMove currentlySelectedBoardPos touchedBoardPos board =
+generateMove : Maybe BoardPosition -> Maybe BoardPosition -> Player -> Board -> Result MoveError Move
+generateMove currentlySelectedBoardPos touchedBoardPos currPlayer board =
     case ( currentlySelectedBoardPos, touchedBoardPos ) of
         -- only occupied with a piece can be selected
         ( Nothing, Just tBPos ) ->
-            if tBPos.piece /= Nothing then
-                Ok (SelectBoardPos tBPos)
+            case tBPos.piece of
+                Nothing ->
+                    Ok IdentityMove
 
-            else
-                Ok IdentityMove
+                Just (Piece p) ->
+                    if p == currPlayer then
+                        Ok (SelectBoardPos tBPos)
+
+                    else
+                        Err WrongPlayer
 
         ( Just pos1, Just pos2 ) ->
             -- if same position is clicked deselect currently selected board position
@@ -397,6 +432,8 @@ view model =
                 ]
                 [ text "Print" ]
             ]
+        , p [ class "p-2 m-2" ]
+            [ text <| "Current Player: " ++ showPlayer model.currentPlayer ]
         , viewCanvas model
         ]
 
